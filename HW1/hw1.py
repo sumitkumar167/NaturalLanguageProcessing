@@ -1,6 +1,7 @@
 import argparse
 import math
 import random
+#import nltk
 from nltk.tokenize import sent_tokenize, word_tokenize
 from typing import List
 from typing import Tuple
@@ -12,14 +13,37 @@ from typing import Generator
 # text is a list of strings
 # Yields n-gram tuples of the form (string, context), where context is a tuple of strings
 def get_ngrams(n: int, text: List[str]) -> Generator[Tuple[str, Tuple[str, ...]], None, None]:
-    pass
+    assert n > 0
+    # pad with start and end tokens
+    padded = ["<s>"] * (n - 1) + list(text) + ["</s>"]
+
+    for i in range(n-1, len(padded)):
+        word = padded[i]
+        context = tuple(padded[i-(n-1):i]) if n>1 else()
+        # skip yielding start tokens as words
+        if word != "<s>":
+            yield(word, context)
 
 
 # Loads and tokenizes a corpus
 # corpus_path is a string
 # Returns a list of sentences, where each sentence is a list of strings
 def load_corpus(corpus_path: str) -> List[List[str]]:
-    pass
+    sentences = []
+    with open(corpus_path, "r", encoding="utf-8") as f:
+        text = f.read()
+
+    paragraphs = text.split("\n\n")
+    for para in paragraphs:
+        para = para.strip()
+        if not para:
+            continue
+        sents = sent_tokenize(para)
+        for s in sents:
+            words = word_tokenize(s)
+            if len(words) > 0:
+                sentences.append(words)
+    return sentences
 
 
 # Builds an n-gram model from a corpus
@@ -27,7 +51,11 @@ def load_corpus(corpus_path: str) -> List[List[str]]:
 # corpus_path is a string
 # Returns an NGramLM
 def create_ngram_lm(n: int, corpus_path: str) -> 'NGramLM':
-    pass
+    corpus = load_corpus(corpus_path)
+    lm = NGramLM(n)
+    for sent in corpus:
+        lm.update(sent)
+    return lm
 
 
 # An n-gram language model
@@ -42,7 +70,15 @@ class NGramLM:
     # text is a list of strings
     # No return value
     def update(self, text: List[str]) -> None:
-        pass
+        for word, context in get_ngrams(self.n, text):
+            #update ngram counts
+            self.ngram_counts[(word, context)] = self.ngram_counts.get((word, context), 0) + 1
+            #update context counts
+            self.context_counts[context] = self.context_counts.get(context, 0) + 1
+
+            #update vocabulary
+            if word!= "<s>":
+                self.vocabulary.add(word)
 
     # Calculates the MLE probability of an n-gram
     # word is a string
@@ -50,35 +86,87 @@ class NGramLM:
     # delta is an float
     # Returns a float
     def get_ngram_prob(self, word: str, context: Tuple[str, ...], delta= .0) -> float:
-        pass
+        V = len(self.vocabulary)
+
+        #unseen context fallback
+        if context not in self.context_counts:
+            return 1.0/V
+        
+        c_context = self.context_counts[context]
+        c_ngram = self.ngram_counts.get((word, context), 0)
+
+        if delta == 0:
+            #MLE
+            return c_ngram/c_context
+        else:
+            #Laplace smoothing
+            return (c_ngram + delta)/(c_context + delta * V)
 
     # Calculates the log probability of a sentence
     # sent is a list of strings
     # delta is a float
     # Returns a float
     def get_sent_log_prob(self, sent: List[str], delta=.0) -> float:
-        pass
+        log_prob = 0.0
+        for word, context in get_ngrams(self.n, sent):
+            p = self.get_ngram_prob(word, context, delta) # for unseen words, p becomes 0 if delta = 0
+            # Prevent log(0) crash
+            if p == 0.0:
+                return float("-inf")
+            log_prob += math.log(p,2)
+        return log_prob
 
     # Calculates the perplexity of a language model on a test corpus
     # corpus is a list of lists of strings
     # delta is a float
     # Returns a float
     def get_perplexity(self, corpus: List[List[str]], delta=0.) -> float:
-        pass
+        total_log_prob = 0.0
+        total_tokens = 0
+
+        for sent in corpus:
+            total_log_prob += self.get_sent_log_prob(sent)
+            total_tokens += len(sent)
+        
+        avg_log_prob = total_log_prob / total_tokens
+        perplexity = math.pow(2, -avg_log_prob)
+        return perplexity
 
     # Samples a word from the probability distribution for a given context
     # context is a tuple of strings
     # delta is an float
     # Returns a string
     def generate_random_word(self, context: Tuple[str, ...], delta=.0) -> str:
-        pass
+        words = sorted(self.vocabulary)
+        r = random.random()
+        cumulative = 0.0
+
+        for w in words:
+            p = self.get_ngram_prob(w, context, delta)
+            cumulative += p
+            if r < cumulative:
+                return w
+        
+        return words[-1]
 
     # Generates a random sentence
     # max_length is an int
     # delta is a float
     # Returns a string
     def generate_random_text(self, max_length: int, delta=.0) -> str:
-        pass
+        context = tuple(["<s>"] * (self.n - 1))
+        generated = []
+
+        for _ in range(max_length):
+            w = self.generate_random_word(context, delta)
+            if w == "</s>":
+                break
+            generated.append(w)
+
+            if self.n > 1:
+                context = tuple((list(context) + [w])[-(self.n - 1):])
+        
+        return " ".join(generated)
 
 
 def main(corpus_path: str, delta: float, seed: int):

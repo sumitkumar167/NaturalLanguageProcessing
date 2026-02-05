@@ -77,7 +77,7 @@ class NGramLM:
             self.context_counts[context] = self.context_counts.get(context, 0) + 1
 
             #update vocabulary
-            if word!= "<s>" and word != "</s>":
+            if word!= "<s>":
                 self.vocabulary.add(word)
 
     # Calculates the MLE probability of an n-gram
